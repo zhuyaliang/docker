@@ -1,0 +1,143 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>程冬冬聊天程序</title>
+<style type="text/css">
+<!--
+*{
+ // margin:0px;
+ // padding:2px;
+}
+#all{
+	position:relative;
+	width:820px;
+	left:50%;
+	margin-left:-420px;
+	background-image:url(qqico/bg.jpg);
+	}
+#p_img {
+	text-align: center;
+}
+#top {
+	//border-top:36px;
+	width: 700px;
+	padding-top:36px;
+	margin-left:60px;
+	//float:left;
+	text-align: center;
+	font-weight: bold;
+	font-size: 36px;
+	//height:120px;
+}
+ #centre {
+	width: 800px;
+	//float:left;
+}
+#foot {
+	//float:left;
+	height:100px;
+	width: 700px;
+	margin-left:60px;
+	text-align: center;
+	font-size: 20px;
+}
+#aaaa{
+	text-align: left;
+	width: 350px;
+	float:right;
+	font-size: 12px;
+}
+
+-->
+</style>
+</head>
+
+<body>
+<div id="all">
+<div id="top">
+聊天程序使用方法简介
+</div>
+<div id= "aaaa">
+  <p>							
+   <br>   指导教师：张同光</p></div>
+   <div id="top">
+   <hr  color="#666666"/></div>
+ <div id="centre">
+   <ol>
+     <li>使用环境：</li>
+     <blockquote>
+       <p>Linux操作系统，且装有TCP／IP,及POP3，SMTP协议，运行服务端要装有MYSQL数据库。</p>
+       <blockquote>       </blockquote>
+     </blockquote>
+     <li>创建数据库：</li>
+     <blockquote>
+       <p>启动数据库 service mysqld start<br />进行数据库 mysql -u root -p123456<br />数据库密码一定要是123456</p>
+       <blockquote>
+       <p>create database myqq;<br />
+         use myqq;;<br />
+        create table usermsg(<br />
+        username varchar(20),<br />
+         userid bigint(16) unsigned not null auto_increment,<br />
+         userpwd varchar (20),<br />
+         userip varchar(20),<br />
+         userport varchar(10),<br />
+         userstatu int(2) default 0,<br />
+         usermail varchar(40),<br />
+        primary key(userid));<br />
+       </p>
+       </blockquote>
+     </blockquote>
+     <li>启动服务器端：</li>
+     <blockquote>
+         <p>打开终端运行服务器，服务器IP地址是本机的IP地址，不能有错，在电脑联网情况下，PORT可任意输入未使用的端口，最好是1000以后，完成后点启动按钮，运行（如图1），格式如下：</p>
+         <blockquote>
+         <p>./server&nbsp;&nbsp;&nbsp; &nbsp;</p>
+         </blockquote>
+       </blockquote>
+     <p id="p_img"><img src="qqico/ser.png" width="449" height="490" /><br />
+       <span id="p_img1">图1&nbsp; &nbsp; 服务器启动</span></p>
+      <li>使用客户端：</li>
+      <blockquote>
+       <p>双击客户端应用程序，弹出登录窗口（如图2），点击注册按钮跳到注册窗口（如图3），输入指定信息注册成功后弹出账号提示信息（如图4），这时请牢记自己注册的账号，返回登录</p>
+       <p id="p_img"><img src="qqico/Screenshot-登陆界面.png" width="411" height="295" /><br />
+       图2&nbsp; &nbsp; 登录窗口</p> 
+       <p id="p_img"><img src="qqico/Screenshot-注册页面.png" width="355" height="472" /><br />
+       图3&nbsp; &nbsp; 注册窗口</p>
+       <p id="p_img"><img src="qqico/reg_ok.png" width="262" height="156" /><br />
+       图4&nbsp; &nbsp; 弹出账号窗口</p>
+       <p>登陆成功后可弹出好友列表（如图5），主窗口会显示当前用户的信息及好友列表，好友列表分成在线好友和不在线好友，不能与不在线好友聊天，单击一个不在线好友即弹出不能会话提示对话框，（如图6）</p>
+       <p id="p_img"><img src="qqico/Screenshot-多人聊天工具客户端-1.png" width="251" height="571" /><br />
+       图5&nbsp; &nbsp; 好友列表窗口</p>
+       <p id="p_img"><img src="qqico/Screenshot-login-1.png" width="288" height="153" /><br />
+       图6&nbsp; &nbsp; 提示对话框</p>
+       <p>点击在线好友，可弹出聊天对话框，如图7.</p>
+       <p align="center"><img src="qqico/Screenshot-程冬冬正在与 任佳 进行对话聊天.png" width="411" height="381" /><br />
+图7&nbsp; &nbsp; 聊天对话框</p>
+       <p>聊天对话框，第一个按钮是发送文件功能，如图8.</p>
+       <p align="center"><img src="qqico/未命名.jpg" width="345" height="322" /><br />
+         图8&nbsp; &nbsp; 选择文件</p>
+       <p align="center"><img src="qqico/Screenshot-login.png" width="486" height="158" /></p>
+       <p align="center">可以选择文件，删除文件，选择要传输的文件点确定，便开始传文件，现在的版本只能传文本文件，接受成功，如图9.&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</p>
+       <p align="center">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<img src="qqico/Screenshot-window1.png" width="208" height="159" />&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </p>
+       <p>第二个按钮是发送电子邮件功能，如图10.</p>
+       <p align="center"><img src="qqico/Screenshot-发送电子邮件.png" width="488" height="392" /><br />
+         图10&nbsp; &nbsp;发送电子邮件</p>
+       <p>第三个按钮是显示聊天记录，点击，如图11.</p>
+       <p align="center"><img src="qqico/Screenshot-聊天记录.png" width="360" height="466" /><br />
+         图11&nbsp; &nbsp;聊天记录</p>
+       <p align="center">&nbsp;</p>
+       <p align="center">&nbsp;</p>
+      </blockquote>
+   </ol>
+</div>
+ <div id="foot">
+ <hr color="#666666" />
+   <p id="foot"> 指导教师：张同光
+     <br />
+     <br>
+   对本程序有意见或建议的请联系设计者&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; QQ：376726632&nbsp;&nbsp;&nbsp; Email：zchengdongdong@gmail.com.com</p>
+ </div>
+</div>
+</body>
+</html>
