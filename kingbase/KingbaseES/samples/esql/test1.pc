@@ -1,0 +1,143 @@
+/*
+ * test1.pc
+ *		Test basic data type and operations
+ *
+ * Function:
+ *  Insert data(including bind insert) into database, and then fetch and
+ * output them.
+ *  
+ */
+ 
+#include <stdio.h>
+#include <stdlib.h>
+EXEC SQL INCLUDE sqlca;
+
+EXEC SQL DEFINE BIND_TIMES 5;
+
+EXEC SQL BEGIN DECLARE SECTION;
+varchar uid[19];
+varchar pwd[19];
+char conn_str[256];
+
+typedef struct bind_type
+{
+	int		a;
+	double	b;
+	varchar	c[2];
+	varchar	d[4];
+	char	e[5];
+	char	f[30];
+	bool	g;
+}bind_type;
+
+bind_type	col[BIND_TIMES];
+EXEC SQL END DECLARE SECTION;
+long SQLCODE;
+
+int main(void)
+{
+	EXEC SQL BEGIN DECLARE SECTION;
+	int     *d1=0;
+	double  *d2=0;
+	char **d3=0;
+	char **d4=0;
+	char **d5=0;
+	char **d6=0;
+	char **d7=0;
+	int *i1=0;
+	int *i2=0;
+	int *i3=0;
+	int *i4=0;
+	int *i5=0;
+	int *i6=0;
+	int *i7=0;
+	EXEC SQL END DECLARE SECTION;
+	int i;
+
+	/* bind data */
+	for (i = 0; i < BIND_TIMES; i++)
+	{
+		col[i].a = i;
+		col[i].b = i + (double)i / 10;
+		sprintf(col[i].c.arr, "%c", 'a' + i);
+		col[i].c.len = strlen(col[i].c.arr);
+		sprintf(col[i].d.arr, "%c%d", 'z' - i, i * 3);
+		col[i].d.len = strlen(col[i].d.arr);
+		sprintf(col[i].e, "%d%d", i * i, i + i);
+		sprintf(col[i].f, "200%d-%d-%d 12:33:33 PDT", i, i+1, i+2);
+		col[i].g = i % 2 ? '1' : '0';
+	}
+	
+	EXEC SQL WHENEVER SQLERROR SQLPRINT;
+
+	strcpy(uid.arr, "SYSTEM");
+	strcpy(pwd.arr, "MANAGER");
+	strcpy(conn_str, "TEST@127.0.0.1:54321");
+	
+	EXEC SQL CONNECT TO :conn_str USER :uid IDENTIFIED BY :pwd;
+	if (SQLCODE == 0)
+	{
+        printf("\nLogin> Success\n       logon called for user: %s\n", uid.arr);
+        printf("       Connection string: %s\n", conn_str);
+	}
+	else
+	{
+        printf("\nLogin> Fail\n       logon called for user: %s\n", uid.arr);
+        printf("       Connection string is:%s\n", conn_str);
+        exit(99);
+	}
+	
+	EXEC SQL SET DATESTYLE TO mdy;
+	
+	EXEC SQL CREATE TABLE test (a INT, b NUMERIC(12,3), c VARCHAR, d VARCHAR(3), e CHAR(4), f TIMESTAMP, g BOOLEAN);
+	EXEC SQL INSERT INTO test (a, b, c, d, e, f, g) VALUES (15, 23.456, 'r', 'v', 'c', '2003-03-03 12:33:07 PDT', true);
+	EXEC SQL INSERT INTO test (a, b, c, d, e, f, g) VALUES (28, 2.446456, NULL, 'v', 'c', '2003-03-03 12:33:07 PDT', false);
+	
+	EXEC SQL FOR BIND_TIMES INSERT INTO test(a, b, c, d, e, f, g) VALUES (:col);
+	
+	EXEC SQL allocate DESCRIPTOR mydesc with MAX 7;
+	EXEC SQL SELECT a,b,c,d,e,f,g INTO DESCRIPTOR mydesc FROM test;
+	EXEC SQL GET DESCRIPTOR mydesc VALUE 1 :d1=DATA, :i1=INDICATOR;
+	EXEC SQL GET DESCRIPTOR mydesc VALUE 2 :d2=DATA, :i2=INDICATOR;
+	EXEC SQL GET DESCRIPTOR mydesc VALUE 3 :d3=DATA, :i3=INDICATOR;
+	EXEC SQL GET DESCRIPTOR mydesc VALUE 4 :d4=DATA, :i4=INDICATOR;
+	EXEC SQL GET DESCRIPTOR mydesc VALUE 5 :d5=DATA, :i5=INDICATOR;
+	EXEC SQL GET DESCRIPTOR mydesc VALUE 6 :d6=DATA, :i6=INDICATOR;
+	EXEC SQL GET DESCRIPTOR mydesc VALUE 7 :d7=DATA, :i7=INDICATOR;
+	
+	printf("Result:\n");
+	for (i = 0; i < sqlca.sqlerrd[2]; i++)
+	{
+		if (i1[i]) printf("NULL, ");
+		else printf("%d, ",d1[i]); 
+		
+		if (i2[i]) printf("NULL, ");
+		else printf("%f, ",d2[i]); 
+		
+		if (i3[i]) printf("NULL, ");
+		else printf("'%s', ",d3[i]); 
+		
+		if (i4[i]) printf("NULL, ");
+		else printf("'%s', ",d4[i]); 
+		
+		if (i5[i]) printf("NULL, ");
+		else printf("'%s', ",d5[i]); 
+		
+		if (i6[i]) printf("NULL, ");
+		else printf("'%s', ",d6[i]); 
+		
+		if (i7[i]) printf("NULL, ");
+		else printf("'%s', ",d7[i]); 
+		
+		printf("\n");
+	}
+	printf("\n");
+	
+	EXEC SQL DEALLOCATE DESCRIPTOR mydesc;
+	
+	EXEC SQL DROP TABLE test;
+	
+	EXEC SQL DISCONNECT;
+	
+	return 0;
+}

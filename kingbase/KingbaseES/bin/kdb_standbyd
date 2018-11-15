@@ -1,0 +1,191 @@
+#!/bin/bash
+
+#this script is the real workhorse to manage standby
+#use it using command line like "kdb_standby start".
+#we hope provide the perfect performance for you. but
+#it may has some bugs in reality condition. so let us kown.
+
+# Source function library.
+# get the functions from the KINGBASE_HOME/bin/functions.
+# it modified from the redhat enterprise edition 6.1
+if [ ! -e ${KINGBASE_HOME}/bin/functions ];then 
+	echo "can't source ${KINGBASE_HOME}/bin/functions"
+	exit 1
+else
+	. ${KINGBASE_HOME}/bin/functions
+fi
+
+#start the standby using "kdb_standby start".
+#first check the standby running or not.
+#then start it. before we really do it.
+#we must prepare the excuting environment.
+standby_start() 
+{
+	#first check the krms is already running or not	
+	local pid=`ps -f -U "${prog_user}" | grep -w "standby$" \
+	| grep -v grep | awk '{ print $2; exit 0}'`;
+	if [ $pid ]
+	then
+		echo -n "standby is already running."
+		#if the process is running, we think is ok
+		echo_success
+	else
+		#the process is not runing so we prepare to start it.
+		#check the binary file is correct or not. like LSB
+		if [ ! -x "${KINGBASE_HOME}/bin/standby" ]; then
+			echo -n "${KINGBASE_HOME}/bin/standby not installed"
+			echo_failure
+			exit 5
+		fi
+		echo -n $"starting standby"
+		# start standby, set some system paramters and environment variable
+		ulimit -d unlimited; ulimit -f unlimited; ulimit -m unlimited;
+		ulimit -v unlimited; ulimit -s unlimited; ulimit -c unlimited;
+		${KINGBASE_HOME}/bin/standby >/dev/null 2>&1 &
+		#wait for a while and check the reault.
+		sleep 2
+		# get pid again, and check the process work or not
+		pid=`ps -f -U "${prog_user}" | grep -w "standby$" \
+		| grep -v 'grep' | awk '{ print $2; exit 0}'`;	
+		if [ $pid ]
+		then
+			touch /tmp/.es.${prog_user}.standby.pid && \
+			`echo ${pid} >/tmp/.es.${prog_user}.standby.pid`
+			echo_success
+		else
+			echo_failure
+			echo
+			#the process is not running
+			exit 7
+		fi
+	fi
+	echo
+}
+#use the signal SIGTERM to kill the krms.
+#and wait 10 seconds. if the process hasn't been killed.
+#then we use SIGINT to kill it forever.
+standby_stop()
+{
+	#first check the process id is exist or not.
+	local pid=`ps -f -U "${prog_user}" | grep -w "standby$" \
+	| grep -v 'grep' | awk '{ print $2; exit 0}'`;
+	if [ $pid ] 
+	then
+		#the process id is exist.
+		echo -n $"stopping standby"
+		/bin/kill -SIGTERM ${pid} > /dev/null 2>&1 &	
+		# if not stop, wait 10 seconds
+		if [ $? -eq 0 ]
+		then
+			local cnt=0
+			while [ `ps -f -U "${prog_user}" | grep -w "standby$" \
+			| grep -v 'grep' | awk '{ print $2; exit 0}'` ]
+			do
+				cnt=`expr $cnt + 1`
+				if [ $cnt -eq 10 ]
+				then
+					break
+				else
+					sleep 1
+				fi
+			done
+			#kill the process user signal SIGINT. FIXME: loop forever.
+			while [ `ps -f -U "${prog_user}" | grep -w "standby$" \
+			| grep -v 'grep' | awk '{ print $2; exit 0}'` ]
+			do
+			 	/bin/kill -SIGINT ${pid} >/dev/null 2>&1 &
+			 	sleep 1
+			done
+			#when reach here, the instance has been killed.
+			rm -f /tmp/.es.${prog_user}.standby.pid
+			echo_success
+		else
+			#unkown error encountered.
+			echo_failure
+			echo
+			exit 1
+		fi
+	else
+		#the process has stoped.
+		echo -n "standby is not running"
+		rm -f /tmp/.es.${prog_user}.standby.pid
+		echo_success
+	fi
+	echo
+}
+
+# just check the process id.
+#  0  :  started
+#  3  :  stopped
+standby_status()
+{
+	#just check the process id is exit or not.	
+	local pid=`ps -f -U "${prog_user}" | grep -w "standby$" \
+	| grep -v grep | awk '{ print $2; exit 0}'`;
+	if [ $pid ];then
+		echo -n "standby (pid $pid) is running"
+		echo_success
+		echo
+	else
+		if [ -e /tmp/.es.${prog_user}.standby.pid ];then
+			echo  "standby is not running"
+			echo -n "but the pid file of standby is exist."
+			echo_warning
+			echo
+			exit 1
+		else
+			echo -n "standby is not running"
+			echo_warning
+			echo
+			exit 3
+		fi
+	fi
+}
+#simple restart realiztion.
+standby_restart()
+{
+	standby_stop
+	standby_start
+}
+#simple usage of this script
+standby_usage()
+{
+	echo $"usage of this script:"
+	echo -n "kdb_standbyd {start|stop|status|restart}"
+}
+#########################################################################
+#						the beginning of this script			 		#
+#########################################################################
+#the root user can't use this script
+if [ `id -u` -eq 0 ]
+then
+	echo -n "root user can't run this script."
+	echo_failure
+	echo
+	#this is the general error.
+	exit 1
+fi
+#get the program user.
+prog_user=`id -un`
+#get the user's action and do what they want to do.
+case "$1" in
+	start)
+		standby_start
+    	;;
+	stop)
+		standby_stop
+		;;
+  	status)
+		standby_status
+		;;
+  	restart)
+		standby_restart
+		;;
+	*)
+		standby_usage
+		echo_failure
+		echo
+		#this is the parameter error
+		exit 2
+		;;
+esac

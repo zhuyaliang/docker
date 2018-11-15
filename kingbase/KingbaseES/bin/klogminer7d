@@ -1,0 +1,335 @@
+#!/bin/bash
+#
+# chkconfig: - 80 09
+### BEGIN INIT INFO
+# Provides:          klogminer
+# Required-Start:    $syslog
+# Required-Stop:     $syslog
+# Should-Start:      $network $time
+# Should-Stop:       $network $time
+# Default-Start:     3 5
+# Default-Stop:      0 1 2 4 6
+# Short-Description: KingbaseES log miner Service
+# Description:       This shell script takes care of starting and 
+#                    stopping klogminer (for log miner of kingbase).
+# Author:            zkong (zkong@kingbase.com.cn)
+### END INIT INFO
+#
+# Remarks:
+# - The LSB actually might be interpreted that there is only a single space
+#   between the the colon after the keyword and the first argument, but
+#   most or all LSB install_initd's support more than one space
+# - Local extensions start with a X-[LANA registered provider or domain]-
+#   The X-UnitedLinux-Default-Enabled is one of the few actually used
+#   extension (enable service by when installing package, but keep current
+#   status when updating).
+#
+# The other keywords are described by the LSB. Notes on the differences
+# between Required-Start and Should-Start (which was introduced by LSB 1.9):
+#
+# a) Required-Start/Required-Stop is used as hard dependencies, i.e. for
+#    services which have to be started before this service. For instance
+#    needs the 'nfs-kernel-server' the portmap service. Requiring
+#      RequiredStart: $portmap
+#    ensures that the portmapper is started before the nfs server.
+#    If a required service is missing, an init script cannot be installed
+#    and an init script which is required by another cannot be removed.
+#
+# b) Should-Start/Should-Stop is used for weak dependencies. This ensures
+#    that the order of the init scripts is useful. A possible use for
+#    'autofs' is to ask for
+#      Should-Start: nis
+#    which enables to read maps via NIS. Note that not all LSB install_initd
+#    programs support Should-Start (Debian's does) and therefore one should
+#    try hard not to rely on its support.
+#
+#    The Required-Stop/Should-Stop usually contain the same services as
+#    Required-Start/Should-Start do.
+#
+#    Besides using the services provided by the Provides section of
+#    init script, those predefined facilities are available
+#    (while they start with a $ they are no shell variables):
+#
+#    a) LSB 1.1 facility names
+#    - $local_fs    all local filesystems are mounted
+#    - $remote_fs   all remote filesystems are mounted
+#                   (note that /usr might be remote)
+#    - $syslog      system logging is operational
+#    - $network     low level networking (ethernet card etc.)
+#    - $named       hostname resolution available
+#    - $netdaemons  all network daemons are running
+#                   (Removed in LSB 1.2)
+#    b) LSB 1.2 facility names
+#    - $time        the system time has been set (e.g. NTP)
+#    - $portmap     daemons providing SunRPC/ONCRPC portmapping service
+#                   are running
+#
+# The LSB specifies those runlevels, most services use 3 and 5 for
+# Default-Start and 0 1 2 6 for Default-Stop.
+# 
+# 0 - halt
+# 1 - single user mode
+# 2 - multiuser with no network services exported
+# 3 - normal/full multiuser
+# 4 - reserved for local use (usually normal/full multiuser)
+# 5 - multiuser with xdm or equivalent
+# 6 - reboot
+# 
+# Note on that script names should follow the LSB:
+# http://www.linuxbase.org/spec/gLSB/gLSB/scrptnames.html
+# There is a registry for script names that are reserved for use by
+# distributions and registered script and provider names at
+# http://www.lanana.org/
+
+# output the message to terminal and /var/log/messages
+function kdb_echo()
+{
+	echo_opt=""
+	echo_str=""
+	while [ "${1:0:1}x" = "-x" ]
+	do
+		echo_opt="${echo_opt} $1"
+		shift
+	done
+	
+	while [ "$#" -gt 0 ]
+	do	
+		echo_str="${echo_str} $1"
+		shift
+	done
+
+	if [ "${echo_str}x" != "x" ]; then
+		logger ${echo_str}
+		echo ${echo_opt} ${echo_str}
+	fi
+}
+
+# Since init scripts are config files, they might be left after an uninstall
+# Check whether a required configuration file is available
+#the kingbase version
+VERSION=7
+KINGBASE_CONF=/etc/kingbasees
+if [ ! -r "$KINGBASE_CONF" ]; then
+	kdb_echo "kingbasees has not been installed"
+	exit 5
+fi
+while read LINE
+do
+	if [ "x$LINE" = "x\#*" ]; then
+		continue
+	else
+		#must be the correct version
+		if [ "x`echo $LINE | awk -F: '{print $2}' -`" = "x${VERSION}" ]; then
+			KINGBASE_INSTALL=`echo $LINE | awk -F: '{print $1}' -`
+			break
+		fi
+	fi
+done< <(cat ${KINGBASE_CONF})
+if [ "x${KINGBASE_INSTALL}" = "x" ];then
+	kdb_echo "the platform has no kingbasees ${VERSION} installed."
+	exit 5
+fi
+
+# Source function library.
+# get the functions from the KINGBASE_HOME/bin/functions.
+# it modified from the redhat enterprise edition 6.1
+if [ ! -e ${KINGBASE_INSTALL}/bin/functions ];then 
+	kdb_echo "can't source [${KINGBASE_INSTALL}/bin/functions]"
+	exit 1
+else
+	. ${KINGBASE_INSTALL}/bin/functions
+fi
+
+# Those LSB defined exit status codes shall be used (except for status)
+# 0     sucess
+# 1	generic or unspecified error (current practice)
+# 2	invalid or excess argument(s)
+# 3	unimplemented feature (for example, "reload")
+# 4	user had insufficient privilege
+# 5	program is not installed
+# 6	program is not configured
+# 7    	program is not running
+# 8-199 reserved (8-99 LSB, 100-149 distribution, 150-199 application)
+# 
+# Note that those situation shall also be regarded as success:
+# * restarting a service (instead of reloading it)
+#   with the "force-reload" argument
+# * running "start" on a service already running
+# * running "stop" on a service already stopped or not running
+# * running "restart" on a service already stopped or not running
+# * running "try-restart" on a service already stopped or not running
+#
+#this is the return value. initialize to '0'. when no error happen, we
+#return the '0'.
+rev=0
+while read LINE
+do
+case $LINE in
+	\#*)
+	#the line begin with#
+	;;
+	*)
+	# Proceed only if last field is 'Y'. Entries whose last field is 
+	#not Y or N are not kingbase home, ignore them.
+	controlbit=`echo $LINE | awk -F: '{print $NF}' -`
+	if [ "x${controlbit}" != "xY" -a "x${controlbit}" != "xN" ];then
+		kdb_echo -n "wrong config value: ${controlbit} [Y/N]"
+		echo_failure
+		echo
+		rev=1
+		continue
+	fi
+	if [ "x`echo $LINE | awk -F: '{print $2}' -`" = "x${VERSION}" -a \
+		"x${controlbit}" = "xY" ];then
+	KINGBASE_HOME=`echo $LINE | awk -F: '{print $1}' -`
+	# check the kingbase installed correct or not.
+	KINGBASE_BIN="$KINGBASE_HOME/bin/kdb_logminerd"
+	if [ ! -x "$KINGBASE_BIN" ]; then
+		kdb_echo -n "$KINGBASE_BIN not installed"
+		echo_failure
+		echo
+		rev=5
+		continue
+	fi
+	#check the instance config file right or not
+	INSTANCE_CONF="${KINGBASE_HOME}/config/instance.conf"
+	if [ ! -r "${INSTANCE_CONF}" ]; then
+		kdb_echo -n "${INSTANCE_CONF} not existing"
+		echo_failure
+		echo
+		rev=6
+		continue
+	fi
+	#get the kingbase install owner
+	prog_user=`ls -l ${KINGBASE_HOME}/bin/kdb_logminerd | awk '{print $3}'`
+	#process all the instances in one $kingbase_home
+	while read instance_name
+	do
+		#[*krms] can't be the instance name
+		if [ "x${instance_name:0:1}" != "x*" ];then
+		case "$1" in
+			start)
+			# Start service with startproc which shall return the LSB exit status
+			kdb_echo -n "starting ${instance_name} of ${prog_user}"
+			daemon --user ${prog_user} \
+			"export KINGBASE_HOME=${KINGBASE_HOME};${KINGBASE_BIN} start ${instance_name}" \
+			>/dev/null 2>&1
+			STATUS=$?
+			if [ "$STATUS" -eq 0 ]; then
+				echo_success
+				echo
+			else
+				echo_failure
+				echo
+				rev=${STATUS}
+			fi
+			;;
+			stop)
+			#first we stop the instance
+			# Stop the service with killproc which shall return the
+			# LSB exit status, if the data_opt is not correct.
+			kdb_echo -n "shutting down ${instance_name} of ${prog_user}"
+			#the kdb_jobmgmt write the pid to dirctory /tmp/
+			killproc -p /tmp/.es.${prog_user}.klogminer.${instance_name}.pid >/dev/null 2>&1
+			STATUS=$?
+			if [ "$STATUS" -eq 0 ]
+			then
+				echo_success
+				echo
+			else
+				echo_failure
+				echo
+				rev=${STATUS}
+			fi
+			;;
+			restart)
+			# Restart service (if running) or start service
+			kdb_echo -n "shutting down all klogminer"
+			$0 stop >/dev/null 2>&1
+			STATUS=$?
+			if [ "$STATUS" -eq 0 ]
+			then
+				echo_success
+				echo
+			else
+				echo_failure
+				echo
+				exit ${STATUS}	
+			fi
+			kdb_echo -n "starting all klogminer"
+			$0 start >/dev/null 2>&1
+			STATUS=$?
+			if [ "$STATUS" -eq 0 ]
+			then
+				echo_success
+				echo
+			else
+				echo_failure
+				echo
+			fi
+			exit ${STATUS}
+			;;
+			force-reload)
+			# Reload the configuartion. Usually a SIGHUP is used for this
+			# If it doesn't support his signal, restart it (only if running)
+			# Supports signalling
+			kdb_echo -n "restarting all klogminer "
+			$0 restart >/dev/null 2>&1
+			STATUS=$?
+			if [ "$STATUS" -eq 0 ]
+			then
+				echo_success
+				echo
+			else
+				echo_failure
+				echo
+			fi
+			exit ${STATUS}
+			;;
+			status)
+			# Use pidofproc to check the status of the service,
+			# pidofproc returns the exit status code of 0 when it the process is
+			# running.
+
+			# LSB defined exit status codes for status:
+			# 0	program is running or service is OK
+			# 1	program is dead and /var/run pid file exists
+			# 2	program is dead and /var/lock lock file exists
+			# 3	program is not running
+			# 4	program or service status is unknown
+			# 5-199	reserved (5-99 LSB, 100-149 distribution, 150-199 applications)
+			#first get all the instance status
+			kdb_echo -n "klogminer ${instance_name} of ${prog_user}"
+			pidofproc -p /tmp/.es.${prog_user}.klogminer.${instance_name}.pid >/dev/null 2>&1
+			STATUS=$?
+			if [ "$STATUS" -eq 0 ]
+			then
+				kdb_echo -n ": running"
+				echo_success
+				echo
+			else
+				kdb_echo -n ": not running"
+				echo_warning
+				echo
+				rev=${STATUS}
+			fi
+			;;
+			*)
+			echo "Usage:"
+			echo -n "$0 {start|stop|status|restart|force-reload}"
+			echo_failure
+			echo
+			#this error every instance will be the same, wrong parameter.
+			exit 2
+			;;
+		esac
+		fi
+	#read begin with '[' and end with ']'
+	done< <(sed 's/^[ ]*//g' ${INSTANCE_CONF}  | grep '^\[.*.\]$' |tr  -d '^[]$')
+  fi
+  ;;
+esac
+done< <(cat ${KINGBASE_CONF})
+#at last we return the value of this script
+logger "service klogminer7d return ${rev}"
+exit ${rev}

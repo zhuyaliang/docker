@@ -1,0 +1,247 @@
+#!/bin/bash
+#this script is the real workhorse to manage one
+#instance. using it "kdb_instance start instance_name."
+#we hope provide the perfect performance for you. but
+#it may has some bugs in reality condition. so let us kown.
+
+# Source function library.
+# get the functions from the KINGBASE_HOME/bin/functions.
+# it modified from the redhat enterprise edition 6.1
+if [ ! -e ${KINGBASE_HOME}/bin/functions ];then 
+	echo "can't source ${KINGBASE_HOME}/bin/functions"
+	exit 1
+else
+	. ${KINGBASE_HOME}/bin/functions
+fi
+
+#start the kingbase instance use the instance name.
+#first check the instance running or not.
+#then start it. before we really do it.
+#we must prepare the environments of the running kingbase.
+kingbase_start() 
+{
+	#first check the kingbase is already running or not	
+	local pid=`ps -f -U "${prog_user}" \
+	| grep "kingbase \b${instance_name}\b$" \
+	| grep -v grep | awk '{ print $2; exit 0}'`	
+	if [ "x$pid" != "x" ]; then
+		echo -n "instance ${instance_name} already running."
+		#if the process is running, we think is ok
+		echo_success
+	else
+		allowstart=`sed -e 's/^[ ]*//g' ${KINGBASE_HOME}/config/instance.conf \
+		| sed -n -e "/^\[$instance_name\]$/,/^\[.*\]$/p" | grep "^allowstart" \
+		| sed -e 's/allowstart[ ]*=[ ]*//g' | tr -d "^\'\'$" | sed -n -e '1p' | awk -F: '{print $1}'`
+		if [ "x${allowstart}" != "xY" ]; then
+			echo -n "instance.conf set disallow start the instance."
+			echo_failure
+			echo
+			exit 1
+		fi
+		#the process is not runing so we prepare to start it.
+		#check the binary file is correct or not. like LSB
+		if [ ! -x "${KINGBASE_HOME}/bin/kingbase" ]; then
+			echo -n "${KINGBASE_HOME}/bin/kingbase can't been executed."
+			echo_failure
+			echo
+			exit 5
+		fi
+		echo -n $"Starting instance ${instance_name}"
+		# make sure prog_user can access the default log dir.
+		# get the owner:group of the dir. and check them is 
+		# the current user and group.
+		log_dir=${KINGBASE_HOME}/log			
+		if [ -d $log_dir ]; then
+			logdirowner=`ls -l ${KINGBASE_HOME}| grep '.* log$' | awk '{print $3}'`
+			logdirgroup=`ls -l ${KINGBASE_HOME}| grep '.* log$' | awk '{print $4}'`
+			prog_group=`id -gn`
+			if [ "x${logdirowner}" != "x${prog_user}" -o\
+			"x${logdirgroup}" != "x${prog_group}" ]; then
+				echo
+				echo "the kingbase instance log directory [${log_dir}]"
+				echo -n "doesn't belong to current user ${prog_user}:${prog_group}"
+				echo_failure
+				echo
+				#the genaral error which we didn't define.
+				exit 1
+			fi
+		fi
+		#this path is used to start up the instance. inherient
+		#the previous edition.
+		oslib_dir=${KINGBASE_HOME}/lib
+		odbclib_dir=${KINGBASE_HOME}/unixodbc/lib
+		# start instance, set some environment variable 
+		export LD_LIBRARY_PATH=${KINGBASE_HOME}/bin:${oslib_dir}:${odbclib_dir};
+		ulimit -c unlimited; ${KINGBASE_HOME}/bin/kingbase ${instance_name} >/dev/null 2>&1 &
+		#wait for a while and check the result.
+		sleep 1
+		# get pid again, and check the process work or not
+		pid=`ps -f -U "${prog_user}" \
+		| grep "kingbase \b${instance_name}\b$" \
+		| grep -v 'grep' | awk '{ print $2; exit 0}'`	
+		if [ "x$pid" != "x" ]; then
+			echo_success
+		else
+			echo_failure
+			echo
+			#the process is not running
+			exit 7
+		fi
+	fi
+	echo
+}
+#use the signal SIGTERM to kill the kingbase instance.
+#and wait 10 seconds. if the process hasn't been killed.
+#then we use SIGINT.
+kingbase_stop()
+{
+	#first check the process id that is exist or not.
+	local pid=`ps -f -U "${prog_user}" \
+	| grep "kingbase \b${instance_name}\b$" \
+	| grep -v 'grep' | awk '{ print $2; exit 0}'`
+	if [ "x$pid" != "x" ]; then
+		#the process id is exist. so we can kill it now.
+		echo -n $"stopping instance ${instance_name}"
+		/bin/kill -SIGTERM ${pid} > /dev/null 2>&1 &	
+		# if not stopped, wait 10 seconds
+		if [ $? -eq 0 ]; then
+			local cnt=0
+			while [ `ps -f -U "${prog_user}" \
+			| grep "kingbase \b${instance_name}\b$" \
+			| grep -v 'grep' | awk '{ print $2; exit 0}'` ]
+			do
+				cnt=`expr $cnt + 1`
+				if [ $cnt -eq 10 ]
+				then
+					break
+				else
+					sleep 1
+				fi
+			done
+			#kill the process user signal SIGINT. FIXME: loop forever.
+			while [ `ps -f -U "${prog_user}" \
+			| grep "kingbase \b${instance_name}\b$" \
+			| grep -v 'grep' | awk '{ print $2; exit 0}'` ]
+			do
+			 	/bin/kill -SIGINT ${pid} >/dev/null 2>&1 &
+			 	sleep 1
+			done
+			#when reach here, the instance has been killed.
+			echo_success
+		else
+			#unkown error encountered.
+			echo_failure
+			echo
+			exit 1
+		fi
+	else
+		#the process has stopped. we think it's ok.
+		echo -n "instance ${instance_name} is not running"			
+		echo_success
+	fi
+	echo
+}
+
+# just check the process id.
+#  0  :  started
+#  1  :  no process but has the pid file
+#  3  :  stopped
+kingbase_status()
+{
+	#just check the process id that is exist or not.	
+	local pid=`ps -f -U "${prog_user}" \
+	| grep "kingbase \b${instance_name}\b$" \
+	| grep -v grep | awk '{ print $2; exit 0}'`
+	if [ "x$pid" != "x" ]; then
+		echo -n "instance ${instance_name} (pid $pid) is running"
+		echo_success
+	else
+		#get the instance data directory then we can check the kingbase pid file
+		#we want to choose the first data_dir item beween two sections which are
+		#defined like [***]
+		local data_opt=`sed -e 's/^[ ]*//g' ${KINGBASE_HOME}/config/instance.conf \
+		| sed -n -e "/^\[$instance_name\]$/,/^\[.*\]$/p" | grep "^data_dir" \
+		| sed -e 's/data_dir[ ]*=[ ]*//g' | tr -d "^\'\'$" | sed -n -e '1p'`
+		if [ -e ${data_opt}/kingbase.pid ]; then
+			echo "instance ${instance_name} is not running "
+			echo -n "but ${data_opt}/kingbase.pid exists"
+			echo_warning
+			echo
+			exit 1
+		else
+			echo -n "instance ${instance_name} is not running"
+			echo_warning
+			echo
+			exit 3
+		fi
+	fi
+	echo
+}
+#simple restart realiztion.
+kingbase_restart()
+{
+	kingbase_stop
+	kingbase_start
+}
+#the usage interpretation
+kingbase_usage()
+{
+	echo $"usage of this script:"
+	echo -n "kdb_instanced {start|stop|status|restart} instance"
+}
+#########################################################################
+#						the beginning of this script			 		#
+#########################################################################
+#the root user can't use this script
+if [ `id -u` -eq 0 ]; then
+	echo -n "root user can't run this script."
+	echo_failure
+	echo
+	#this is the general error.
+	exit 1
+fi
+#check the parameter number, user use this script by
+#"kdb_instance start instance_name", so the parameter
+#number is 2.
+if [ $# -ne 2 ]; then
+	kingbase_usage
+	echo_failure
+	echo
+	#this is the parameter error
+	exit 2
+fi
+#get the program user and instance name.
+prog_user=`id -un`
+#we get the instance name from the second parameter.
+instance_name=$2
+check_name=`sed -e 's/^[ ]*//g' ${KINGBASE_HOME}/config/instance.conf \
+			| grep "^\[${instance_name}\]$"`
+if [ "x${check_name}" = "x" ];then
+	echo -n "can't find ${instance_name} in instance.conf"
+	echo_failure
+	echo
+	#the config error
+	exit 6
+fi
+#get the user's action and do what they want to do.
+case "$1" in
+	start)
+		kingbase_start
+    	;;
+	stop)
+		kingbase_stop
+		;;
+  	status)
+		kingbase_status
+		;;
+  	restart)
+		kingbase_restart
+		;;
+	*)
+		kingbase_usage
+		echo_failure
+		#this is the parameter error
+		echo
+		exit 2
+		;;
+esac

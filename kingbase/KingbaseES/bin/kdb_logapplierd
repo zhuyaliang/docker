@@ -1,0 +1,219 @@
+#!/bin/bash
+
+#this script is the real workhorse to manage standby
+#use it using command line like "kdb_logapplier start".
+#we hope provide the perfect performance for you. but
+#it may has some bugs in reality condition. so let us kown.
+
+# Source function library.
+# get the functions from the KINGBASE_HOME/bin/functions.
+# it modified from the redhat enterprise edition 6.1
+if [ ! -e ${KINGBASE_HOME}/bin/functions ];then 
+	echo "can't source ${KINGBASE_HOME}/bin/functions"
+	exit 1
+else
+	. ${KINGBASE_HOME}/bin/functions
+fi
+
+#start the klogappler using "kdb_logapplier start".
+#first check the klogapplier running or not.
+#then start it. before we really do it.
+#we must prepare the excuting environment.
+klogapplier_start() 
+{
+	#first check the klogapplier is already running or not	
+	local pid=`ps -f -U "${prog_user}" | \
+	grep "klogapplier[ ]*-d[ ]*-p[ ]*-v[ ]*${log_file}" \
+	| grep -v grep | awk '{ print $2; exit 0}'`;
+	if [ $pid ]
+	then
+		echo -n "klogapplier is already running."
+		#if the process is running, we think is ok
+		echo_success
+	else
+		#the process is not runing so we prepare to start it.
+		#check the binary file is correct or not. like LSB
+		if [ ! -x "${KINGBASE_HOME}/bin/klogapplier" ]; then
+			echo -n "${KINGBASE_HOME}/bin/klogapplier not installed"
+			echo_failure
+			exit 5
+		fi
+		echo -n $"starting klogapplier"
+		# make sure prog_user can access the default log dir.
+		# get the owner:group of the dir. and check them is 
+		# the current user and group.
+		log_dir=${KINGBASE_HOME}/log			
+		if [ -d $log_dir ]; then
+			logdirowner=`ls -l ${KINGBASE_HOME}| grep '.* log$' | awk '{print $3}'`
+			logdirgroup=`ls -l ${KINGBASE_HOME}| grep '.* log$' | awk '{print $4}'`
+			prog_group=`id -gn`
+			if [ "x${logdirowner}" != "x${prog_user}" -o\
+			"x${logdirgroup}" != "x${prog_group}" ]; then
+				echo
+				echo "the klogapplier log directory [${log_dir}]"
+				echo -n "doesn't belong to current user ${prog_user}:${prog_group}"
+				echo_failure
+				echo
+				#the genaral error which we didn't define.
+				exit 1
+			fi
+		fi
+		# start klogapplier, set some system paramters and environment variable
+		oslib_dir=${KINGBASE_HOME}/lib
+		odbclib_dir=${KINGBASE_HOME}/unixodbc/lib
+		log_file=${log_dir}/klogapplier.log
+		ulimit -s unlimited; ulimit -c unlimited; export LANG=C;
+		export LD_LIBRARY_PATH=${KINGBASE_HOME}/bin:$oslib_dir:$odbclib_dir;
+		${KINGBASE_HOME}/bin/klogapplier -d -p -v ${log_file} >/dev/null 2>&1 &
+		#wait for a while and check the reault.
+		sleep 2
+		# get pid again, and check the process work or not
+		pid=`ps -f -U "${prog_user}" | \
+		grep "klogapplier[ ]*-d[ ]*-p[ ]*-v[ ]*${log_file}" \
+		| grep -v 'grep' | awk '{ print $2; exit 0}'`;	
+		if [ $pid ]
+		then
+			touch /tmp/.es.${prog_user}.klogapplier.pid && \
+			`echo ${pid} >/tmp/.es.${prog_user}.klogapplier.pid`
+			echo_success
+		else
+			echo_failure
+			echo
+			#the process is not running
+			exit 7
+		fi
+	fi
+	echo
+}
+#use the signal SIGTERM to kill the klogapplier.
+#and wait 10 seconds. if the process hasn't been killed.
+#then we use SIGINT to kill it forever.
+klogapplier_stop()
+{
+	#first check the process id is exist or not.
+	local pid=`ps -f -U "${prog_user}" | \
+	grep "klogapplier[ ]*-d[ ]*-p[ ]*-v[ ]*${log_file}" \
+	| grep -v 'grep' | awk '{ print $2; exit 0}'`;
+	if [ $pid ] 
+	then
+		#the process id is exist.
+		echo -n $"stopping klogapplier"
+		/bin/kill -SIGTERM ${pid} > /dev/null 2>&1 &	
+		# if not stop, wait 10 seconds
+		if [ $? -eq 0 ]
+		then
+			local cnt=0
+			while [ `ps -f -U "${prog_user}" | \
+			grep "klogapplier[ ]*-d[ ]*-p[ ]*-v[ ]*${log_file}" \
+			| grep -v 'grep' | awk '{ print $2; exit 0}'` ]
+			do
+				cnt=`expr $cnt + 1`
+				if [ $cnt -eq 10 ]
+				then
+					break
+				else
+					sleep 1
+				fi
+			done
+			#kill the process user signal SIGINT. FIXME: loop forever.
+			while [ `ps -f -U "${prog_user}" | \
+			grep "klogapplier[ ]*-d[ ]*-p[ ]*-v[ ]*${log_file}" \
+			| grep -v 'grep' | awk '{ print $2; exit 0}'` ]
+			do
+			 	/bin/kill -SIGINT ${pid} >/dev/null 2>&1 &
+			 	sleep 1
+			done
+			#when reach here, the instance has been killed.
+			rm -f /tmp/.es.${prog_user}.klogapplier.pid
+			echo_success
+		else
+			#unkown error encountered.
+			echo_failure
+			echo
+			exit 1
+		fi
+	else
+		#the process has stoped.
+		echo -n "klogapplier is not running"
+		rm -f /tmp/.es.${prog_user}.klogapplier.pid
+		echo_success
+	fi
+	echo
+}
+
+# just check the process id.
+#  0  :  started
+#  3  :  stopped
+klogapplier_status()
+{
+	#just check the process id is exit or not.	
+	local pid=`ps -f -U "${prog_user}" | \
+	grep "klogapplier[ ]*-d[ ]*-p[ ]*-v[ ]*${log_file}" \
+	| grep -v grep | awk '{ print $2; exit 0}'`;
+	if [ $pid ];then
+		echo -n "klogapplier (pid $pid) is running"
+		echo_success
+		echo
+	else
+		if [ -e /tmp/.es.${prog_user}.klogapplier.pid ];then
+			echo  "klogapplier is not running"
+			echo -n "but the pid file of klogappler is exist."
+			echo_warning
+			echo
+			exit 1
+		else
+			echo -n "klogappler is not running"
+			echo_warning
+			echo
+			exit 3
+		fi
+	fi
+}
+#simple restart realiztion.
+klogapplier_restart()
+{
+	klogapplier_stop
+	klogapplier_start
+}
+#simple usage of this script
+klogapplier_usage()
+{
+	echo $"usage of this script:"
+	echo -n "kdb_logapplierd {start|stop|status|restart}"
+}
+#########################################################################
+#						the beginning of this script			 		#
+#########################################################################
+#the root user can't use this script
+if [ `id -u` -eq 0 ]
+then
+	echo -n "root user can't run this script."
+	echo_failure
+	echo
+	#this is the general error.
+	exit 1
+fi
+#get the program user.
+prog_user=`id -un`
+#get the user's action and do what they want to do.
+case "$1" in
+	start)
+		klogapplier_start
+    	;;
+	stop)
+		klogapplier_stop
+		;;
+  	status)
+		klogapplier_status
+		;;
+  	restart)
+		klogapplier_restart
+		;;
+	*)
+		klogapplier_usage
+		echo_failure
+		echo
+		#this is the parameter error
+		exit 2
+		;;
+esac

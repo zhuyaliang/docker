@@ -1,0 +1,12 @@
+#ifndef FLOAT8PASSBYVAL
+#define FLOAT8PASSBYVAL true
+#endif
+
+#ifndef FLOAT4PASSBYVAL
+#define FLOAT4PASSBYVAL true
+#endif
+
+#ifndef KINGBASE_VERSION_NUM
+#define KINGBASE_VERSION_NUM 70102
+#endif
+

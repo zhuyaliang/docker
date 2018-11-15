@@ -1,0 +1,170 @@
+#include <stdio.h>
+#include <stdlib.h>
+EXEC SQL INCLUDE sqlca;
+EXEC SQL INCLUDE kbtypes_lob;
+
+int main(void)
+{
+	EXEC SQL BEGIN DECLARE SECTION;
+	varchar uid[19];
+	varchar pwd[19];
+	char conn_str[256];
+	
+	int t=50;
+	ESQLBlobLocator *blob;
+	char *lvr;
+	char *key = "kingbase";
+	char *inputfile = "inputfile";
+	char *outputfile = "outputfile";
+	unsigned int      bufsize;
+	unsigned int      amt;
+	unsigned int      filelen, remainder, nbytes;
+	unsigned int      offset = 1;
+	unsigned int loblen;
+	EXEC SQL END DECLARE SECTION;
+	int i;
+	bool  last = FALSE;
+	FILE    *in_fd, *out_fd;
+	long SQLCODE;
+
+	EXEC SQL WHENEVER SQLERROR SQLPRINT;
+	strcpy(uid, "SYSTEM");
+	strcpy(pwd, "MANAGER");
+	strcpy(conn_str, "TEST@127.0.0.1:54321");
+	
+	EXEC SQL CONNECT TO :conn_str USER :uid IDENTIFIED BY :pwd;
+	if (SQLCODE == 0)
+	{
+        printf("\nLogin> Success\n       logon called for user: %s\n", uid);
+        printf("       Connection string: %s\n", conn_str);
+	}
+	else
+	{
+        printf("\nLogin> Fail\n       logon called for user: %s\n", uid);
+        printf("       Connection string is:%s\n", conn_str);
+        exit(99);
+	}
+	
+	EXEC SQL ALLOCATE :blob;
+	EXEC SQL CREATE TABLE test(a int, b blob);
+	EXEC SQL INSERT INTO test(a, b) VALUES (1, empty_blob());
+	EXEC SQL SELECT b INTO :blob FROM test WHERE a=1;
+	EXEC SQL LOB DESCRIBE :blob GET LENGTH INTO :t;
+
+	/* Open the file for reading. */
+	in_fd = fopen(inputfile, "rb");
+	if (in_fd == (FILE *)0)
+		return 0;
+	
+	/* Determine Total File Length - Total Amount to Write to BLOB */
+	(void) fseek(in_fd, 0L, SEEK_END);
+	amt = filelen = (unsigned int)ftell(in_fd);
+	
+	/* Determine the Buffer Size and Allocate the LONG VARRAW Object */
+	bufsize = 2048;
+	lvr = (char *)malloc(bufsize);
+	
+	nbytes = (filelen > bufsize) ? bufsize : filelen;
+	  
+	/* Reset the File Pointer and Perform the Initial Read */
+	(void) fseek(in_fd, 0L, SEEK_SET);
+	fread((void *)lvr, (size_t)1, (size_t)nbytes, in_fd);
+	remainder = filelen - nbytes;
+	
+	if (remainder == 0)
+	{
+	  /* Write the BLOB in a Single Piece */
+	  EXEC SQL LOB WRITE ONE :amt
+	     FROM :lvr WITH LENGTH :nbytes INTO :blob AT :offset;
+	}
+	else
+	{
+	  /* Write the BLOB in Multiple Pieces using Standard Polling */
+	  EXEC SQL LOB WRITE FIRST :amt
+	     FROM :lvr WITH LENGTH :nbytes INTO :blob AT :offset;
+	
+	  do {
+	
+	    if (remainder > bufsize)
+	      nbytes = bufsize;
+	    else
+	      {
+	        nbytes = remainder;
+	        last = TRUE;
+	      }
+	
+	    if ((bufsize = fread(
+	          (void *)lvr, (size_t)1, (size_t)nbytes, in_fd)) != nbytes)
+	      last = TRUE;
+	
+	    if (last)
+	      {
+	        /* Write the Final Piece */
+	        EXEC SQL LOB WRITE LAST :amt
+	           FROM :lvr WITH LENGTH :nbytes INTO :blob AT :offset;
+	      }
+	    else
+	      {
+	        /* Write an Interim Piece - Still More to Write */
+	        EXEC SQL LOB WRITE NEXT :amt
+	           FROM :lvr WITH LENGTH :nbytes INTO :blob AT :offset;  
+	      }
+	
+	    remainder -= nbytes;
+	
+	  } while (!last && !feof(in_fd));
+	}
+	
+	/* Close the file, and return the total file size. */
+	fclose(in_fd);
+	free(lvr);
+  
+  	EXEC SQL LOB DESCRIBE :blob GET LENGTH INTO :loblen;
+
+	printf("loblen=%d\n", loblen);
+	if ((filelen == 0) || (filelen != loblen))
+	{
+	  printf("Problem reading file\n");
+	  EXEC SQL ROLLBACK;
+	  EXEC SQL FREE :blob;
+	  return;
+	}
+
+	EXEC SQL UPDATE test SET b = :blob WHERE a = 1;
+
+	/* Determine the Buffer Size and Allocate the LONG VARRAW Object */
+	bufsize = 2048;
+	lvr = (char *)malloc(bufsize);
+	
+	/* Open the output file for Writing */
+	out_fd = fopen(outputfile, "wb");
+	if (out_fd == (FILE *)0)
+	return;
+	
+	amt = 0;             /* Initialize for Standard Polling (Possibly) */
+	
+	/* READ the BLOB using a Standard Polling Loop */
+	EXEC SQL WHENEVER NOT FOUND DO break;
+	
+	while (TRUE)
+	{
+	  EXEC SQL LOB READ :amt FROM :blob AT :offset INTO :lvr WITH LENGTH :bufsize;
+	  (void) fwrite((void *)lvr, (size_t)1, (size_t)bufsize, out_fd);
+	}
+	
+	EXEC SQL WHENEVER NOT FOUND CONTINUE;
+	
+	/* Write the Final Piece (or First and Only Piece if not Polling) */
+	(void) fwrite((void *)lvr, (size_t)bufsize, (size_t)1, out_fd);
+	
+	/* Close the Output File and Return */
+	fclose(out_fd);
+  
+	EXEC SQL DROP TABLE test;
+
+	EXEC SQL FREE :blob;
+
+	EXEC SQL DISCONNECT;
+	
+	return 0;
+}
